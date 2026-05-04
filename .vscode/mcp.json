@@ -1,0 +1,13 @@
+{
+    "servers": {
+        "powerbi": {
+            "command": "cmd",
+            "args": [
+                "/d",
+                "/c",
+                "${workspaceFolder}\\scripts\\run-powerbi-mcp.cmd"
+            ],
+            "env": {}
+        }
+    }
+}
