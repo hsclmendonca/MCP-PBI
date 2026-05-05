@@ -2,10 +2,11 @@
     "servers": {
         "powerbi": {
             "type": "stdio",
-            "command": "python",
+            "command": "cmd",
             "args": [
-                "-u",
-                "${workspaceFolder}\\scripts\\powerbi-mcp-server.py"
+                "/d",
+                "/c",
+                "${workspaceFolder}\\scripts\\run-powerbi-mcp.cmd"
             ],
             "env": {
                 "PYTHONUNBUFFERED": "1",
