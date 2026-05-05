@@ -1,15 +1,27 @@
 """
-Power BI MCP Server (v2)
+Power BI MCP Server (v3)
 
 A local MCP server that wraps pbi-cli for Power BI Desktop operations.
-Transport: stdio JSON-RPC with Content-Length framing.
+Transport: stdio with newline-delimited JSON-RPC (MCP standard).
 """
 
 import json
 import os
 import subprocess
 import sys
-import threading
+
+# ---------------------------------------------------------------------------
+# Windows binary mode fix: prevent CR/LF translation on stdin/stdout pipes.
+# Without this, Python's C runtime translates \n → \r\n on stdout, which
+# corrupts JSON-RPC messages and causes VS Code MCP host to hang.
+# ---------------------------------------------------------------------------
+if sys.platform == "win32":
+    import msvcrt
+    msvcrt.setmode(sys.stdin.fileno(), os.O_BINARY)
+    msvcrt.setmode(sys.stdout.fileno(), os.O_BINARY)
+    # Also suppress stderr to prevent any output leaking to the MCP pipe
+    if not os.getenv("PBI_MCP_DEBUG_LOG", "").lower() in ("1", "true", "yes"):
+        msvcrt.setmode(sys.stderr.fileno(), os.O_BINARY)
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -26,26 +38,20 @@ MUTATING_TOOLS = {
     "pbi_import_tmdl",
 }
 
-SERVER_INFO = {"name": "powerbi-mcp-server", "version": "2.0.0"}
+SERVER_INFO = {"name": "powerbi-mcp-server", "version": "3.0.0"}
 CAPABILITIES = {"tools": {}}
 
 # ---------------------------------------------------------------------------
-# Logging (stderr, opt-in file redirect)
+# Logging (stderr → file when debug, devnull otherwise)
 # ---------------------------------------------------------------------------
 
-_log_file = None
-
 def _setup_logging():
-    global _log_file
     if not DEBUG:
-        # Suppress all stderr output so VS Code doesn't confuse it with protocol data
-        devnull = open(os.devnull, "w")
-        sys.stderr = devnull
+        sys.stderr = open(os.devnull, "w")
         return
     log_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "mcp-server.log")
     try:
-        _log_file = open(log_path, "a", encoding="utf-8")
-        sys.stderr = _log_file
+        sys.stderr = open(log_path, "a", encoding="utf-8")
     except OSError:
         pass
 
@@ -54,60 +60,32 @@ def log(msg):
         print(msg, file=sys.stderr, flush=True)
 
 # ---------------------------------------------------------------------------
-# MCP Transport: Content-Length framed JSON-RPC over stdio
+# MCP Transport: newline-delimited JSON-RPC over stdio
 # ---------------------------------------------------------------------------
-# VS Code MCP host sends:
-#   Content-Length: <n>\r\n
-#   \r\n
-#   <json body of exactly n bytes>
-#
-# We MUST reply in the same format.
-# Key: use sys.stdin.buffer (binary) to avoid encoding/newline issues on Windows.
+# VS Code 1.117+ sends one JSON object per line on stdin, terminated by \n.
+# We respond with one JSON object per line on stdout, terminated by \n.
+# No Content-Length headers. Binary mode on Windows to avoid CR/LF issues.
 
 def read_message():
-    """Read one Content-Length framed JSON-RPC message from stdin (binary)."""
-    # Read headers until we get an empty line
-    headers = {}
+    """Read one JSON-RPC message (one line) from stdin."""
     while True:
-        raw_line = sys.stdin.buffer.readline()
-        if not raw_line:
+        raw = sys.stdin.buffer.readline()
+        if not raw:
             return None  # EOF
-        line = raw_line.decode("utf-8", errors="replace").rstrip("\r\n")
-        if line == "":
-            if headers:
-                break  # End of headers
-            else:
-                continue  # Skip leading blank lines (VS Code sometimes sends these)
-        if ":" in line:
-            key, val = line.split(":", 1)
-            headers[key.strip().lower()] = val.strip()
-        elif line.startswith("{"):
-            # Fallback: newline-delimited JSON (no headers)
-            try:
-                return json.loads(line)
-            except json.JSONDecodeError:
-                return None
-
-    length = int(headers.get("content-length", "0"))
-    if length <= 0:
-        return None
-
-    body = b""
-    while len(body) < length:
-        chunk = sys.stdin.buffer.read(length - len(body))
-        if not chunk:
-            return None  # EOF mid-read
-        body += chunk
-
-    return json.loads(body.decode("utf-8", errors="replace"))
+        line = raw.decode("utf-8", errors="replace").strip()
+        if not line:
+            continue  # skip blank lines
+        try:
+            return json.loads(line)
+        except json.JSONDecodeError:
+            log(f"[WARN] non-JSON line ignored: {line[:120]}")
+            continue
 
 
 def write_message(obj):
-    """Write one Content-Length framed JSON-RPC message to stdout (binary)."""
-    body = json.dumps(obj, ensure_ascii=False).encode("utf-8")
-    header = f"Content-Length: {len(body)}\r\n\r\n".encode("utf-8")
-    sys.stdout.buffer.write(header)
-    sys.stdout.buffer.write(body)
+    """Write one JSON-RPC message (one line) to stdout."""
+    line = json.dumps(obj, ensure_ascii=False) + "\n"
+    sys.stdout.buffer.write(line.encode("utf-8"))
     sys.stdout.buffer.flush()
 
 
@@ -419,7 +397,7 @@ def handle_request(msg):
 
     if method == "initialize":
         return {
-            "protocolVersion": "2024-11-05",
+            "protocolVersion": msg.get("params", {}).get("protocolVersion", "2025-11-25"),
             "capabilities": CAPABILITIES,
             "serverInfo": SERVER_INFO,
         }
