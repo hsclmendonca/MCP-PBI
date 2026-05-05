@@ -1,13 +1,16 @@
 {
     "servers": {
         "powerbi": {
-            "command": "cmd",
+            "type": "stdio",
+            "command": "python",
             "args": [
-                "/d",
-                "/c",
-                "${workspaceFolder}\\scripts\\run-powerbi-mcp.cmd"
+                "-u",
+                "${workspaceFolder}\\scripts\\powerbi-mcp-server.py"
             ],
-            "env": {}
+            "env": {
+                "PYTHONUNBUFFERED": "1",
+                "PBI_MCP_READ_ONLY": "true"
+            }
         }
     }
 }

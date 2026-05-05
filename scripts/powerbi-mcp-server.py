@@ -731,8 +731,11 @@ def handle_request(msg):
 
 def main():
     """MCP server main loop - reads JSON-RPC messages from stdin, responds on stdout."""
+    debug = os.getenv("PBI_MCP_DEBUG_LOG", "").lower() in ("1", "true", "yes")
+    log_file = None
+
     # Redirect stderr to file only when debug logging is enabled.
-    if os.getenv("PBI_MCP_DEBUG_LOG", "").lower() in ("1", "true", "yes"):
+    if debug:
         log_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "mcp-server.log")
         try:
             log_file = open(log_path, "a", encoding="utf-8")
@@ -740,15 +743,33 @@ def main():
         except OSError:
             pass
 
+    if debug:
+        print(f"[START] powerbi-mcp-server starting (pid={os.getpid()})", file=sys.stderr, flush=True)
+
+    consecutive_empty = 0
+    msg = None
     while True:
         try:
             msg = read_message()
+
+            # None means EOF (stdin closed) — exit cleanly.
             if msg is None:
-                break
+                # Allow a few empty reads before exiting, in case of startup race.
+                consecutive_empty += 1
+                if consecutive_empty >= 3:
+                    break
+                continue
+
+            consecutive_empty = 0
+
+            if debug:
+                print(f"[RECV] method={msg.get('method')} id={msg.get('id')}", file=sys.stderr, flush=True)
 
             result = handle_request(msg)
             if result is not None:
                 send_result(msg["id"], result)
+                if debug:
+                    print(f"[SENT] id={msg.get('id')} method={msg.get('method')}", file=sys.stderr, flush=True)
 
         except Exception as e:
             print(f"[ERROR] {e}", file=sys.stderr, flush=True)
