@@ -7,9 +7,11 @@ Transport: stdio with newline-delimited JSON-RPC (MCP standard).
 
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
+from pathlib import Path
 
 # ---------------------------------------------------------------------------
 # Windows binary mode fix: prevent CR/LF translation on stdin/stdout pipes.
@@ -40,6 +42,12 @@ MUTATING_TOOLS = {
 }
 
 SERVER_INFO = {"name": "powerbi-mcp-server", "version": "3.1.0"}
+MCP_IDENTITY = {
+    "mcpServerId": "powerbi",
+    "alias": "mcp-pbi",
+    "serverName": SERVER_INFO["name"],
+    "serverVersion": SERVER_INFO["version"],
+}
 CAPABILITIES = {"tools": {}}
 
 # ---------------------------------------------------------------------------
@@ -277,6 +285,88 @@ def build_workspace_context():
     return True, ctx
 
 
+def inspect_pbip_project(project_path):
+    """Inspect a local PBIP/TMDL project without requiring a live Power BI connection."""
+    if not project_path:
+        return {"ok": False, "error": "projectPath is required."}
+
+    p = Path(project_path)
+    if not p.exists():
+        return {"ok": False, "error": f"Path not found: {project_path}"}
+
+    base_dir = p.parent if p.is_file() else p
+    semantic_dir = None
+
+    if p.is_dir() and p.name.endswith(".SemanticModel"):
+        semantic_dir = p
+    else:
+        semantic_candidates = sorted(base_dir.glob("*.SemanticModel"))
+        if semantic_candidates:
+            semantic_dir = semantic_candidates[0]
+
+    if semantic_dir is None:
+        return {
+            "ok": False,
+            "error": "No .SemanticModel directory found near projectPath.",
+            "projectPath": str(p),
+        }
+
+    tmdl_files = [f for f in semantic_dir.rglob("*.tmdl") if f.is_file()]
+    table_files = [f for f in tmdl_files if "tables" in [x.lower() for x in f.parts]]
+
+    measure_count = 0
+    table_names = []
+    for tf in table_files:
+        table_names.append(tf.stem)
+        try:
+            content = tf.read_text(encoding="utf-8", errors="ignore")
+        except OSError:
+            continue
+        measure_count += len(re.findall(r"(?im)^\s*measure\s+", content))
+
+    return {
+        "ok": True,
+        "mode": "design-only",
+        "projectPath": str(p),
+        "semanticModelPath": str(semantic_dir),
+        "tableCountFromFiles": len(table_files),
+        "measureCountFromTmdl": measure_count,
+        "sampleTables": sorted(table_names)[:20],
+        "notes": [
+            "This is a local design inspection from PBIP/TMDL files.",
+            "No live model connection is required for this output.",
+        ],
+    }
+
+
+def build_degraded_context(reason, project_path=None):
+    """Return resilient diagnostics when live model context is unavailable."""
+    connections = []
+    ok_conn, payload, raw_conn = run_pbi_json("connections", "list")
+    if ok_conn:
+        connections = extract_items(payload)
+
+    degraded = {
+        "mode": "degraded",
+        "reason": reason,
+        "powerBIDesktopRunning": is_powerbi_desktop_running(),
+        "availableConnections": connections,
+        "nextActions": [
+            "Open a PBIX/PBIP in Power BI Desktop and wait for model load.",
+            "Retry pbi_connect then call model tools.",
+            "Use pbi_project_design_inspect with projectPath to inspect local design without live model.",
+        ],
+    }
+
+    if project_path:
+        degraded["designInspection"] = inspect_pbip_project(project_path)
+
+    if not ok_conn:
+        degraded["connectionsListError"] = raw_conn
+
+    return degraded
+
+
 def make_result(text, is_error=False):
     return {"content": [{"type": "text", "text": text}], "isError": is_error}
 
@@ -296,12 +386,13 @@ TOOLS = [
     {"name": "pbi_measure_list", "description": "List all measures with DAX expressions. Use when the user asks to inspect, review, audit, or search existing measures.", "inputSchema": {"type": "object", "properties": {}}},
     {"name": "pbi_relationship_list", "description": "List all relationships. Use when the user asks about joins, model links, filter flow, or relationship inventory.", "inputSchema": {"type": "object", "properties": {}}},
     {"name": "pbi_security_role_list", "description": "List security roles (RLS/OLS). Use when the user asks about row-level security, object security, or model access roles.", "inputSchema": {"type": "object", "properties": {}}},
-    {"name": "pbi_workspace_context", "description": "Full model snapshot combining stats, tables, measures, relationships, and roles. Use when the user asks for a broad overview, context, or complete inspection of the model.", "inputSchema": {"type": "object", "properties": {}}},
-    {"name": "pbi_model_health_snapshot", "description": "Health summary with quality signals and recommendations. Best first tool for requests like analyze this model, review this report model, identify issues, or summarize modeling risks.", "inputSchema": {"type": "object", "properties": {}}},
-    {"name": "pbi_relationship_risk_context", "description": "Relationship risk analysis. Use when the user asks about many-to-many, bidirectional filters, inactive relationships, or relationship problems.", "inputSchema": {"type": "object", "properties": {}}},
-    {"name": "pbi_measure_audit_context", "description": "Measure placement audit with raw measures and concentration by table. Use when the user asks if measures are well organized or wants measure governance feedback.", "inputSchema": {"type": "object", "properties": {}}},
-    {"name": "pbi_model_review", "description": "High-level review of the current Power BI model combining health, relationship risk, and measure audit in one tool. Best choice for broad natural-language requests like review my model, analyze this semantic model, or tell me what is wrong here.", "inputSchema": {"type": "object", "properties": {}}},
-    {"name": "pbi_connect_and_review", "description": "Auto-connect workflow for broad analysis: tries to connect to Power BI Desktop and then returns model review. Use when user asks to analyze but connection may not be active.", "inputSchema": {"type": "object", "properties": {"dataSource": {"type": "string", "description": "Optional localhost:port for explicit connection target."}}}},
+    {"name": "pbi_workspace_context", "description": "Full model snapshot combining stats, tables, measures, relationships, and roles. Use when the user asks for a broad overview, context, or complete inspection of the model.", "inputSchema": {"type": "object", "properties": {"projectPath": {"type": "string", "description": "Optional PBIP/TMDL path for design-only fallback when no live model is available."}}}},
+    {"name": "pbi_model_health_snapshot", "description": "Health summary with quality signals and recommendations. Best first tool for requests like analyze this model, review this report model, identify issues, or summarize modeling risks.", "inputSchema": {"type": "object", "properties": {"projectPath": {"type": "string", "description": "Optional PBIP/TMDL path for design-only fallback when no live model is available."}}}},
+    {"name": "pbi_relationship_risk_context", "description": "Relationship risk analysis. Use when the user asks about many-to-many, bidirectional filters, inactive relationships, or relationship problems.", "inputSchema": {"type": "object", "properties": {"projectPath": {"type": "string", "description": "Optional PBIP/TMDL path for design-only fallback when no live model is available."}}}},
+    {"name": "pbi_measure_audit_context", "description": "Measure placement audit with raw measures and concentration by table. Use when the user asks if measures are well organized or wants measure governance feedback.", "inputSchema": {"type": "object", "properties": {"projectPath": {"type": "string", "description": "Optional PBIP/TMDL path for design-only fallback when no live model is available."}}}},
+    {"name": "pbi_model_review", "description": "High-level review of the current Power BI model combining health, relationship risk, and measure audit in one tool. Best choice for broad natural-language requests like review my model, analyze this semantic model, or tell me what is wrong here.", "inputSchema": {"type": "object", "properties": {"projectPath": {"type": "string", "description": "Optional PBIP/TMDL path for design-only fallback when no live model is available."}}}},
+    {"name": "pbi_connect_and_review", "description": "Auto-connect workflow for broad analysis: tries to connect to Power BI Desktop and then returns model review. Use when user asks to analyze but connection may not be active.", "inputSchema": {"type": "object", "properties": {"dataSource": {"type": "string", "description": "Optional localhost:port for explicit connection target."}, "projectPath": {"type": "string", "description": "Optional PBIP/TMDL path for design-only fallback when no live model is available."}}}},
+    {"name": "pbi_project_design_inspect", "description": "Inspect PBIP/TMDL project design from local files without requiring live model connection. Use when the model is not connected, partially loaded, or in imperfect environments.", "inputSchema": {"type": "object", "properties": {"projectPath": {"type": "string", "description": "Path to .pbip file, .SemanticModel folder, or project folder."}}, "required": ["projectPath"]}},
     {"name": "pbi_dax_execute", "description": "Execute a DAX query. Use when the user provides a complete DAX query to run against the connected model.", "inputSchema": {"type": "object", "properties": {"query": {"type": "string", "description": "DAX query."}}, "required": ["query"]}},
     {"name": "pbi_dax_validate", "description": "Validate a DAX expression without creating anything. Use when the user asks if an expression is valid or wants syntax/semantic validation.", "inputSchema": {"type": "object", "properties": {"expression": {"type": "string", "description": "DAX expression."}}, "required": ["expression"]}},
     {"name": "pbi_measure_create", "description": "Create a DAX measure. Use only when the user clearly wants to add a new measure and provides or approves the expression.", "inputSchema": {"type": "object", "properties": {"table": {"type": "string"}, "name": {"type": "string"}, "expression": {"type": "string"}, "formatString": {"type": "string"}, "displayFolder": {"type": "string"}}, "required": ["table", "name", "expression"]}},
@@ -330,6 +421,7 @@ def handle_tool_call(name, args):
         pbi_path = shutil.which("pbi")
         health = {
             "server": SERVER_INFO,
+            "mcpIdentity": MCP_IDENTITY,
             "readOnlyMode": READ_ONLY,
             "debugMode": DEBUG,
             "pythonExecutable": sys.executable,
@@ -380,11 +472,15 @@ def handle_tool_call(name, args):
     # Context tools
     if name == "pbi_workspace_context":
         ok, p = build_workspace_context()
-        return make_result(json.dumps(p, indent=2), not ok)
+        if not ok:
+            degraded = build_degraded_context(p, args.get("projectPath"))
+            return make_result(json.dumps(degraded, indent=2), False)
+        return make_result(json.dumps(p, indent=2), False)
     if name == "pbi_model_health_snapshot":
         ok, p = build_workspace_context()
         if not ok:
-            return make_result(p, True)
+            degraded = build_degraded_context(p, args.get("projectPath"))
+            return make_result(json.dumps(degraded, indent=2), False)
         h = {
             "readOnlyMode": p.get("readOnlyMode", READ_ONLY),
             "summary": p.get("summary", {}),
@@ -402,7 +498,8 @@ def handle_tool_call(name, args):
     if name == "pbi_relationship_risk_context":
         ok, p = build_workspace_context()
         if not ok:
-            return make_result(p, True)
+            degraded = build_degraded_context(p, args.get("projectPath"))
+            return make_result(json.dumps(degraded, indent=2), False)
         return make_result(json.dumps({
             "summary": p.get("qualitySignals", {}),
             "relationships": extract_items(p.get("sources", {}).get("relationships")),
@@ -410,7 +507,8 @@ def handle_tool_call(name, args):
     if name == "pbi_measure_audit_context":
         ok, p = build_workspace_context()
         if not ok:
-            return make_result(p, True)
+            degraded = build_degraded_context(p, args.get("projectPath"))
+            return make_result(json.dumps(degraded, indent=2), False)
         return make_result(json.dumps({
             "summary": p.get("summary", {}),
             "measurePlacement": p.get("summary", {}).get("topMeasureTables", []),
@@ -419,7 +517,8 @@ def handle_tool_call(name, args):
     if name == "pbi_model_review":
         ok, p = build_workspace_context()
         if not ok:
-            return make_result(p, True)
+            degraded = build_degraded_context(p, args.get("projectPath"))
+            return make_result(json.dumps(degraded, indent=2), False)
         review = build_model_review_payload(p)
         return make_result(json.dumps(review, indent=2))
     if name == "pbi_connect_and_review":
@@ -477,12 +576,15 @@ def handle_tool_call(name, args):
 
         ok_ctx, ctx = build_workspace_context()
         if not ok_ctx:
-            if is_connection_error(ctx):
-                return make_result(
-                    "Connected command succeeded but model context is unavailable. Ensure Power BI Desktop has an open PBIX and retry.",
-                    True,
-                )
-            return make_result(ctx, True)
+            degraded = {
+                "connection": {
+                    "autoConnectAttempted": True,
+                    "selectedDataSource": chosen_data_source,
+                    "attempts": connection_attempts,
+                },
+                "review": build_degraded_context(ctx, args.get("projectPath")),
+            }
+            return make_result(json.dumps(degraded, indent=2), False)
 
         review = build_model_review_payload(ctx)
         response = {
@@ -494,6 +596,10 @@ def handle_tool_call(name, args):
             "review": review,
         }
         return make_result(json.dumps(response, indent=2))
+
+    if name == "pbi_project_design_inspect":
+        inspected = inspect_pbip_project(args.get("projectPath"))
+        return make_result(json.dumps(inspected, indent=2), not inspected.get("ok", False))
 
     # DAX
     if name == "pbi_dax_execute":
@@ -594,6 +700,7 @@ def main():
     _setup_logging()
     log(f"[START] pid={os.getpid()} python={sys.executable}")
 
+    msg = None
     while True:
         try:
             msg = read_message()

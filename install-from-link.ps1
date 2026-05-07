@@ -19,6 +19,13 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
+# Validate URL: must be HTTPS and from github.com only
+if ($RepositoryZipUrl -notmatch '^https://github\.com/') {
+    Write-Host "[FAIL] URL must start with https://github.com/ for security reasons." -ForegroundColor Red
+    Write-Host "Provided: $RepositoryZipUrl" -ForegroundColor Red
+    exit 1
+}
+
 Write-Host "`n=== Install Power BI MCP Starter from Link ===" -ForegroundColor Cyan
 Write-Host "Source: $RepositoryZipUrl" -ForegroundColor Gray
 Write-Host "Destination: $Destination" -ForegroundColor Gray
@@ -46,9 +53,9 @@ try {
     Write-Host "[3/4] Copying project files..." -ForegroundColor Yellow
     Copy-Item -Path (Join-Path $repoRoot.FullName '*') -Destination $Destination -Recurse -Force
 
-    $bootstrap = Join-Path $Destination "bootstrap.ps1"
+    $bootstrap = Join-Path $Destination "scripts\setup\bootstrap.ps1"
     if (-not (Test-Path $bootstrap)) {
-        throw "bootstrap.ps1 not found in downloaded repository."
+        throw "scripts/setup/bootstrap.ps1 not found in downloaded repository."
     }
 
     Write-Host "[4/4] Running bootstrap..." -ForegroundColor Yellow

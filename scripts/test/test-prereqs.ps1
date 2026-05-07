@@ -9,7 +9,8 @@
 param()
 
 $ErrorActionPreference = 'Continue'
-$root = Split-Path $PSScriptRoot -Parent
+$scriptDir = Split-Path $PSScriptRoot -Parent
+$root = Split-Path $scriptDir -Parent  # Go up two levels to project root
 $errors = 0
 $warnings = 0
 
@@ -38,10 +39,10 @@ else {
 # 3. Required files for local MCP
 $requiredFiles = @(
     ".vscode\\mcp.json",
-    "scripts\\run-powerbi-mcp.cmd",
-    "scripts\\powerbi-mcp-server.py",
-    "scripts\\test-mcp-server.ps1",
-    "scripts\\validate-mcp-local-only.ps1"
+    "scripts\\core\\run-powerbi-mcp.cmd",
+    "scripts\\core\\powerbi-mcp-server.py",
+    "scripts\\test\\test-mcp-server.ps1",
+    "scripts\\test\\validate-mcp-local-only.ps1"
 )
 
 foreach ($file in $requiredFiles) {

@@ -6,7 +6,7 @@
             "args": [
                 "/d",
                 "/c",
-                "${workspaceFolder}\\scripts\\run-powerbi-mcp.cmd"
+                "${workspaceFolder}\\scripts\\core\\run-powerbi-mcp.cmd"
             ],
             "env": {
                 "PYTHONUNBUFFERED": "1",

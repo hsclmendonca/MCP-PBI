@@ -10,7 +10,7 @@
                 "-ExecutionPolicy",
                 "Bypass",
                 "-File",
-                ".\\bootstrap.ps1"
+                ".\\scripts\\setup\\bootstrap.ps1"
             ],
             "group": "build",
             "presentation": {
@@ -27,7 +27,7 @@
                 "-ExecutionPolicy",
                 "Bypass",
                 "-File",
-                ".\\scripts\\test-prereqs.ps1"
+                ".\\scripts\\test\\test-prereqs.ps1"
             ],
             "group": "test",
             "presentation": {
@@ -44,7 +44,7 @@
                 "-ExecutionPolicy",
                 "Bypass",
                 "-File",
-                ".\\scripts\\validate-mcp-local-only.ps1"
+                ".\\scripts\\test\\validate-mcp-local-only.ps1"
             ],
             "group": "test",
             "presentation": {
@@ -61,7 +61,7 @@
                 "-ExecutionPolicy",
                 "Bypass",
                 "-File",
-                ".\\scripts\\test-mcp-server.ps1"
+                ".\\scripts\\test\\test-mcp-server.ps1"
             ],
             "group": "test",
             "presentation": {
@@ -78,7 +78,7 @@
                 "-ExecutionPolicy",
                 "Bypass",
                 "-File",
-                ".\\scripts\\start-agent-mcp-core.ps1"
+                ".\\scripts\\workspace\\start-agent-mcp-core.ps1"
             ],
             "group": "build",
             "presentation": {
@@ -95,7 +95,24 @@
                 "-ExecutionPolicy",
                 "Bypass",
                 "-File",
-                ".\\scripts\\doctor-local.ps1"
+                ".\\scripts\\workspace\\doctor-local.ps1"
+            ],
+            "group": "test",
+            "presentation": {
+                "reveal": "always",
+                "panel": "shared"
+            }
+        },
+        {
+            "label": "MCP: Verify E2E (MCP + Power BI)",
+            "type": "shell",
+            "command": "powershell",
+            "args": [
+                "-NoProfile",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-File",
+                ".\\scripts\\test\\test-mcp-powerbi-e2e.ps1"
             ],
             "group": "test",
             "presentation": {

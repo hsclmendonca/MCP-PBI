@@ -156,6 +156,21 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\doctor-local.ps1
 
 Or run task: `MCP: Doctor (full local diagnostics)`.
 
+## Am I Connected To The Right MCP?
+
+If a user asks whether they are connected to `mcp-pbi` or `powerbi-mcp-server`, in this workspace they are the same local setup:
+
+1. VS Code MCP server id: `powerbi` (defined in `.vscode/mcp.json`)
+2. Local implementation: `scripts/core/powerbi-mcp-server.py`
+
+Run this end-to-end check to confirm MCP identity + live Power BI model access in one shot:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\test\test-mcp-powerbi-e2e.ps1
+```
+
+Or run task: `MCP: Verify E2E (MCP + Power BI)`.
+
 ## High-Value MCP Tools
 
 For high-level workflows, prefer these tools first:

@@ -8,7 +8,8 @@
 param()
 
 $ErrorActionPreference = 'Stop'
-$root = Split-Path $PSScriptRoot -Parent
+$scriptDir = Split-Path $PSScriptRoot -Parent
+$root = Split-Path $scriptDir -Parent  # Go up two levels to project root
 $mcpPath = Join-Path $root ".vscode\mcp.json"
 
 Write-Host "`n=== Validate MCP Local-Only Policy ===" -ForegroundColor Cyan

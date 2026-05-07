@@ -10,8 +10,9 @@
 param()
 
 $ErrorActionPreference = 'Stop'
-$root = Split-Path $PSScriptRoot -Parent
-$serverScript = Join-Path $root "scripts\powerbi-mcp-server.py"
+$scriptDir = Split-Path $PSScriptRoot -Parent
+$root = Split-Path $scriptDir -Parent  # Go up two levels to project root
+$serverScript = Join-Path $root "scripts\core\powerbi-mcp-server.py"
 
 Write-Host "`n=== MCP Server Handshake Test ===" -ForegroundColor Cyan
 
@@ -33,21 +34,20 @@ Write-Host "[OK] Server script found" -ForegroundColor Green
 # Build the initialize request with Content-Length framing
 $initRequest = @{
     jsonrpc = "2.0"
-    id = 1
-    method = "initialize"
-    params = @{
+    id      = 1
+    method  = "initialize"
+    params  = @{
         protocolVersion = "2024-11-05"
-        capabilities = @{}
-        clientInfo = @{
-            name = "test-client"
+        capabilities    = @{}
+        clientInfo      = @{
+            name    = "test-client"
             version = "1.0.0"
         }
     }
 } | ConvertTo-Json -Depth 10 -Compress
 
-$body = [System.Text.Encoding]::UTF8.GetBytes($initRequest)
-$header = "Content-Length: $($body.Length)`r`n`r`n"
-$payload = $header + $initRequest
+# Server uses newline-delimited JSON-RPC (one JSON object per line, no Content-Length headers).
+$payload = $initRequest + "`n"
 
 Write-Host "Sending initialize request..." -ForegroundColor Yellow
 
@@ -91,35 +91,35 @@ try {
         $jsonResponse = $Matches[1] | ConvertFrom-Json
 
         if ($jsonResponse.result.serverInfo.name) {
+            $serverName = "$($jsonResponse.result.serverInfo.name)"
+            $serverVersion = "$($jsonResponse.result.serverInfo.version)"
             Write-Host "[OK] Server responded:" -ForegroundColor Green
-            Write-Host "  Name: $($jsonResponse.result.serverInfo.name)" -ForegroundColor White
-            Write-Host "  Version: $($jsonResponse.result.serverInfo.version)" -ForegroundColor White
+            Write-Host "  Name: $serverName" -ForegroundColor White
+            Write-Host "  Version: $serverVersion" -ForegroundColor White
             Write-Host "  Protocol: $($jsonResponse.result.protocolVersion)" -ForegroundColor White
+            Write-Host "  Identity: MCP-ID=powerbi | Alias=mcp-pbi | Server=$serverName" -ForegroundColor White
 
             # Now test tools/list
             Write-Host "`nServer handshake successful. Testing tools/list..." -ForegroundColor Yellow
 
             $toolsRequest = @{
                 jsonrpc = "2.0"
-                id = 2
-                method = "tools/list"
-                params = @{}
+                id      = 2
+                method  = "tools/list"
+                params  = @{}
             } | ConvertTo-Json -Depth 5 -Compress
 
             $initNotify = @{
                 jsonrpc = "2.0"
-                method = "notifications/initialized"
-                params = @{}
+                method  = "notifications/initialized"
+                params  = @{}
             } | ConvertTo-Json -Depth 5 -Compress
 
             # Build full payload: initialize + initialized notification + tools/list
-            $initBody = [System.Text.Encoding]::UTF8.GetBytes($initRequest)
-            $notifyBody = [System.Text.Encoding]::UTF8.GetBytes($initNotify)
-            $toolsBody = [System.Text.Encoding]::UTF8.GetBytes($toolsRequest)
-
-            $fullPayload = "Content-Length: $($initBody.Length)`r`n`r`n" + $initRequest
-            $fullPayload += "Content-Length: $($notifyBody.Length)`r`n`r`n" + $initNotify
-            $fullPayload += "Content-Length: $($toolsBody.Length)`r`n`r`n" + $toolsRequest
+            # Each message on its own line (newline-delimited JSON-RPC)
+            $fullPayload = $initRequest + "`n"
+            $fullPayload += $initNotify + "`n"
+            $fullPayload += $toolsRequest + "`n"
 
             $process2 = [System.Diagnostics.Process]::Start($psi)
             $writer2 = $process2.StandardInput
@@ -143,18 +143,21 @@ try {
                 foreach ($tool in $uniqueTools) {
                     Write-Host "  - $tool" -ForegroundColor White
                 }
-            } else {
+            }
+            else {
                 Write-Host "[WARN] Could not parse tools/list response" -ForegroundColor Yellow
             }
 
             Write-Host "`n=== MCP Server Test PASSED ===" -ForegroundColor Green
             exit 0
-        } else {
+        }
+        else {
             Write-Host "[FAIL] Unexpected response format" -ForegroundColor Red
             Write-Host $response
             exit 1
         }
-    } else {
+    }
+    else {
         Write-Host "[FAIL] No JSON found in response" -ForegroundColor Red
         Write-Host "Raw output: $response"
         exit 1

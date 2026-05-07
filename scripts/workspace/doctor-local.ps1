@@ -9,14 +9,15 @@
 param()
 
 $ErrorActionPreference = 'Stop'
-$root = Split-Path $PSScriptRoot -Parent
+$scriptDir = Split-Path $PSScriptRoot -Parent
+$root = Split-Path $scriptDir -Parent  # Go up two levels to project root
 
 Write-Host "`n=== MCP Local Doctor ===" -ForegroundColor Cyan
 
 $checks = @(
-    @{ Name = 'Local-only policy'; Script = 'scripts\validate-mcp-local-only.ps1' },
-    @{ Name = 'Workspace prerequisites'; Script = 'scripts\test-prereqs.ps1' },
-    @{ Name = 'MCP handshake + tools'; Script = 'scripts\test-mcp-server.ps1' }
+    @{ Name = 'Local-only policy'; Script = 'scripts\test\validate-mcp-local-only.ps1' },
+    @{ Name = 'Workspace prerequisites'; Script = 'scripts\test\test-prereqs.ps1' },
+    @{ Name = 'MCP handshake + tools'; Script = 'scripts\test\test-mcp-server.ps1' }
 )
 
 $failed = @()
@@ -46,7 +47,7 @@ for ($i = 0; $i -lt $checks.Count; $i++) {
 Write-Host "`n=== Doctor Summary ===" -ForegroundColor Cyan
 if ($failed.Count -gt 0) {
     Write-Host "Failed checks: $($failed -join ', ')" -ForegroundColor Red
-    Write-Host "Run bootstrap again and retry: powershell -NoProfile -ExecutionPolicy Bypass -File .\bootstrap.ps1" -ForegroundColor Yellow
+    Write-Host "Run bootstrap again and retry: powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\setup\bootstrap.ps1" -ForegroundColor Yellow
     exit 1
 }
 

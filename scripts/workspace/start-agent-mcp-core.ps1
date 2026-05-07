@@ -3,7 +3,7 @@
     Core workflow to run MCP + Agent startup tasks.
 
 .EXAMPLE
-    powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\start-agent-mcp-core.ps1 -TargetProjectPath "C:\work\my-project" -OpenInCode
+    powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\workspace\start-agent-mcp-core.ps1 -TargetProjectPath "C:\work\my-project" -OpenInCode
 #>
 [CmdletBinding()]
 param(
@@ -13,7 +13,8 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$mcpRoot = Split-Path $PSScriptRoot -Parent
+$scriptDir = Split-Path $PSScriptRoot -Parent
+$mcpRoot = Split-Path $scriptDir -Parent  # Go up two levels to project root
 
 function Open-VSCode {
     param(
@@ -44,8 +45,8 @@ function Open-VSCode {
 Write-Host "`n=== Agent + MCP Local Startup ===" -ForegroundColor Cyan
 Write-Host "MCP root: $mcpRoot" -ForegroundColor Gray
 
-$bootstrap = Join-Path $mcpRoot 'bootstrap.ps1'
-$newWorkspaceScript = Join-Path $mcpRoot 'scripts\new-mcp-powerbi-workspace.ps1'
+$bootstrap = Join-Path $mcpRoot 'scripts\setup\bootstrap.ps1'
+$newWorkspaceScript = Join-Path $mcpRoot 'scripts\workspace\new-mcp-powerbi-workspace.ps1'
 
 if (-not (Test-Path $bootstrap)) { throw "Missing bootstrap.ps1" }
 if (-not (Test-Path $newWorkspaceScript)) { throw "Missing scripts/new-mcp-powerbi-workspace.ps1" }

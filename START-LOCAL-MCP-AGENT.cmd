@@ -17,7 +17,7 @@ echo === Power BI MCP + Agent (1-Click Startup) ===
 echo Repository: %ROOT%
 echo.
 
-powershell -NoProfile -ExecutionPolicy Bypass -File "%ROOT%scripts\start-agent-mcp-core.ps1" -OpenInCode
+powershell -NoProfile -ExecutionPolicy Bypass -File "%ROOT%scripts\workspace\start-agent-mcp-core.ps1" -OpenInCode
 set "EXIT_CODE=%ERRORLEVEL%"
 
 if %EXIT_CODE% NEQ 0 (

@@ -10,7 +10,7 @@
     without copying files across repositories.
 
 .EXAMPLE
-    powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\new-mcp-powerbi-workspace.ps1 -TargetProjectPath "C:\work\my-project" -Open
+    powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\workspace\new-mcp-powerbi-workspace.ps1 -TargetProjectPath "C:\work\my-project" -Open
 #>
 [CmdletBinding()]
 param(
@@ -53,7 +53,8 @@ function Open-VSCode {
     return $false
 }
 
-$mcpRoot = Split-Path $PSScriptRoot -Parent
+$scriptDir = Split-Path $PSScriptRoot -Parent
+$mcpRoot = Split-Path $scriptDir -Parent  # Go up two levels to project root
 $target = Resolve-Path $TargetProjectPath -ErrorAction Stop
 $targetPath = $target.Path
 
@@ -93,7 +94,7 @@ Write-Host "  - $targetPath"
 
 if ($RunBootstrap) {
     Write-Host "Running MCP bootstrap in starter project..." -ForegroundColor Yellow
-    & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $mcpRoot 'bootstrap.ps1') -SkipReload
+    & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $mcpRoot 'scripts\setup\bootstrap.ps1') -SkipReload
     if ($LASTEXITCODE -ne 0) {
         throw "bootstrap.ps1 failed with exit code $LASTEXITCODE"
     }

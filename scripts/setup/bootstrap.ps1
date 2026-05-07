@@ -6,7 +6,7 @@
     can start the local MCP server automatically.
 
     Usage:
-      powershell -NoProfile -ExecutionPolicy Bypass -File .\bootstrap.ps1
+      powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\setup\bootstrap.ps1
 #>
 [CmdletBinding()]
 param(
@@ -14,7 +14,9 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$root = Split-Path $PSCommandPath -Parent
+$scriptDir = Split-Path $PSCommandPath -Parent
+$root = Split-Path $scriptDir -Parent
+$root = Split-Path $root -Parent  # Go up two levels to project root
 
 Write-Host "`n=== Power BI MCP Bootstrap (Local Only) ===" -ForegroundColor Cyan
 
@@ -24,18 +26,18 @@ if (-not (Test-Path (Join-Path $root ".vscode\mcp.json"))) {
 }
 
 Write-Host "[1/5] Installing/checking pbi-cli..." -ForegroundColor Yellow
-& powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $root "scripts\setup-pbi-cli.ps1")
+& powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $root "scripts\setup\setup-pbi-cli.ps1")
 
 Write-Host "[2/5] Validating local-only MCP policy..." -ForegroundColor Yellow
-& powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $root "scripts\validate-mcp-local-only.ps1")
+& powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $root "scripts\test\validate-mcp-local-only.ps1")
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
 Write-Host "[3/5] Running prerequisite checks..." -ForegroundColor Yellow
-& powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $root "scripts\test-prereqs.ps1")
+& powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $root "scripts\test\test-prereqs.ps1")
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
 Write-Host "[4/5] Testing MCP handshake..." -ForegroundColor Yellow
-& powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $root "scripts\test-mcp-server.ps1")
+& powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $root "scripts\test\test-mcp-server.ps1")
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
 if (-not $SkipReload) {
