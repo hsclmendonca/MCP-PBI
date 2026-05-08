@@ -20,7 +20,22 @@ $root = Split-Path $scriptDir -Parent
 
 $mcpConfigPath = Join-Path $root ".vscode\mcp.json"
 $handshakeScript = Join-Path $root "scripts\test\test-mcp-server.ps1"
-$pbiExe = "C:\Users\ex_lmendonca\AppData\Local\Programs\Python\Python312\Scripts\pbi.exe"
+
+$pbiExe = $null
+$pbiCmd = Get-Command pbi -ErrorAction SilentlyContinue
+if ($pbiCmd) {
+    $pbiExe = $pbiCmd.Source
+}
+else {
+    # Fallback to Python user Scripts path where pip commonly installs entrypoints.
+    $userScripts = (& python -c "import site; print(site.getusersitepackages().replace('site-packages','Scripts'))" 2>$null)
+    if ($userScripts) {
+        $candidate = Join-Path $userScripts "pbi.exe"
+        if (Test-Path $candidate) {
+            $pbiExe = $candidate
+        }
+    }
+}
 
 Write-Host "`n=== MCP + Power BI End-to-End Verification ===" -ForegroundColor Cyan
 Write-Host "Identity Standard: MCP-ID=powerbi | Alias=mcp-pbi | Server=powerbi-mcp-server" -ForegroundColor White
@@ -56,10 +71,12 @@ if ($LASTEXITCODE -ne 0) {
 Write-Host "[OK] MCP handshake succeeded (powerbi-mcp-server is reachable)." -ForegroundColor Green
 
 # 3) Power BI live model via pbi-cli
-if (-not (Test-Path $pbiExe)) {
-    Write-Host "[FAIL] pbi-cli executable not found: $pbiExe" -ForegroundColor Red
+if (-not $pbiExe -or -not (Test-Path $pbiExe)) {
+    Write-Host "[FAIL] pbi-cli executable not found." -ForegroundColor Red
+    Write-Host "       Install it with scripts\setup\setup-pbi-cli.ps1 and ensure pbi is on PATH." -ForegroundColor Yellow
     exit 2
 }
+Write-Host "[OK] pbi-cli executable: $pbiExe" -ForegroundColor Green
 
 $pbid = Get-Process PBIDesktop -ErrorAction SilentlyContinue | Select-Object -First 1
 if (-not $pbid) {
