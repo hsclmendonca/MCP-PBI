@@ -34,14 +34,31 @@ READ_ONLY = os.getenv("PBI_MCP_READ_ONLY", "true").lower() in ("1", "true", "yes
 DEBUG = os.getenv("PBI_MCP_DEBUG_LOG", "").lower() in ("1", "true", "yes")
 
 MUTATING_TOOLS = {
+    # Semantic model
     "pbi_measure_create",
     "pbi_column_set",
     "pbi_relationship_create",
     "pbi_security_role_create",
     "pbi_import_tmdl",
+    # Report layer
+    "pbi_report_create",
+    "pbi_page_add",
+    "pbi_page_delete",
+    "pbi_visual_add",
+    "pbi_visual_update",
+    "pbi_visual_delete",
+    "pbi_visual_bind",
+    "pbi_filters_add_categorical",
+    "pbi_filters_add_topn",
+    "pbi_filters_clear",
+    "pbi_bookmarks_add",
+    "pbi_bookmarks_delete",
+    # Extended model
+    "pbi_dax_clear_cache",
+    "pbi_export_tmsl",
 }
 
-SERVER_INFO = {"name": "powerbi-mcp-server", "version": "3.1.0"}
+SERVER_INFO = {"name": "powerbi-mcp-server", "version": "3.2.0"}
 MCP_IDENTITY = {
     "mcpServerId": "powerbi",
     "alias": "mcp-pbi",
@@ -371,6 +388,14 @@ def make_result(text, is_error=False):
     return {"content": [{"type": "text", "text": text}], "isError": is_error}
 
 
+def _report_args(args):
+    """Build common report-layer CLI flags from tool arguments."""
+    ca = []
+    if args.get("reportPath"):
+        ca += ["--report", args["reportPath"]]
+    return ca
+
+
 # ---------------------------------------------------------------------------
 # Tool definitions
 # ---------------------------------------------------------------------------
@@ -405,6 +430,37 @@ TOOLS = [
     {"name": "pbi_trace_start", "description": "Start diagnostic trace. Use for troubleshooting performance or low-level Power BI activity.", "inputSchema": {"type": "object", "properties": {}}},
     {"name": "pbi_trace_fetch", "description": "Fetch trace events from an active diagnostic trace. Use after starting a trace.", "inputSchema": {"type": "object", "properties": {}}},
     {"name": "pbi_trace_stop", "description": "Stop diagnostic trace. Use after diagnostics are complete.", "inputSchema": {"type": "object", "properties": {}}},
+    # --- Report Layer (PBIR — no live connection needed) ---
+    {"name": "pbi_report_info", "description": "Get structure and metadata of a PBIR report including pages and report-level settings. Does NOT require Power BI Desktop to be running. Use when the user asks about report structure or pages.", "inputSchema": {"type": "object", "properties": {"reportPath": {"type": "string", "description": "Path to .pbip file or report folder. Auto-detected from working directory if omitted."}}}},
+    {"name": "pbi_report_validate", "description": "Validate PBIR report structure for correctness. Use before publishing or after edits to catch structural issues. No live connection needed.", "inputSchema": {"type": "object", "properties": {"reportPath": {"type": "string", "description": "Path to .pbip file or report folder."}}}},
+    {"name": "pbi_report_create", "description": "Create a new PBIR report project. Use when the user asks to scaffold or create a new Power BI report file.", "inputSchema": {"type": "object", "properties": {"name": {"type": "string", "description": "Report project name."}, "reportPath": {"type": "string", "description": "Directory to create the report in."}}, "required": ["name"]}},
+    {"name": "pbi_report_reload", "description": "Reload the PBIR report in Power BI Desktop after file edits. Use after modifying PBIR files to sync changes back to the Desktop UI.", "inputSchema": {"type": "object", "properties": {"reportPath": {"type": "string", "description": "Path to .pbip file or report folder."}}}},
+    # Pages
+    {"name": "pbi_page_list", "description": "List all pages in a PBIR report. Use when the user asks what pages or tabs exist in a report. No live connection needed.", "inputSchema": {"type": "object", "properties": {"reportPath": {"type": "string", "description": "Path to .pbip file or report folder."}}}},
+    {"name": "pbi_page_add", "description": "Add a new page to a PBIR report. Use when the user asks to create a new report page or tab.", "inputSchema": {"type": "object", "properties": {"name": {"type": "string", "description": "Page display name."}, "reportPath": {"type": "string", "description": "Path to .pbip file or report folder."}}, "required": ["name"]}},
+    {"name": "pbi_page_delete", "description": "Delete a page from a PBIR report. Use when the user asks to remove a specific report page.", "inputSchema": {"type": "object", "properties": {"page": {"type": "string", "description": "Page name to delete."}, "reportPath": {"type": "string", "description": "Path to .pbip file or report folder."}}, "required": ["page"]}},
+    # Visuals
+    {"name": "pbi_visual_list", "description": "List all visuals on a report page. Use when the user asks what charts, tables, cards, or visuals are on a specific page.", "inputSchema": {"type": "object", "properties": {"page": {"type": "string", "description": "Page name."}, "reportPath": {"type": "string", "description": "Path to .pbip file or report folder."}}, "required": ["page"]}},
+    {"name": "pbi_visual_add", "description": "Add a visual to a report page. Supports 32 visual types: barChart, lineChart, columnChart, tableEx, matrix, card, slicer, donutChart, pieChart, scatterChart, waterfallChart, kpi, gauge, treemap, funnel, ribbonChart, areaChart, multiRowCard, and more. Use when the user asks to add a chart or visual.", "inputSchema": {"type": "object", "properties": {"page": {"type": "string", "description": "Page name."}, "type": {"type": "string", "description": "Visual type (e.g. barChart, lineChart, columnChart, tableEx, matrix, card, slicer)."}, "x": {"type": "number", "description": "X position in pixels."}, "y": {"type": "number", "description": "Y position in pixels."}, "width": {"type": "number", "description": "Width in pixels."}, "height": {"type": "number", "description": "Height in pixels."}, "reportPath": {"type": "string", "description": "Path to .pbip file or report folder."}}, "required": ["page", "type"]}},
+    {"name": "pbi_visual_get", "description": "Get details of a specific visual on a page including its configuration, bound fields, and formatting. Use to inspect a visual before editing it.", "inputSchema": {"type": "object", "properties": {"page": {"type": "string", "description": "Page name."}, "visual": {"type": "string", "description": "Visual ID (from pbi_visual_list)."}, "reportPath": {"type": "string", "description": "Path to .pbip file or report folder."}}, "required": ["page", "visual"]}},
+    {"name": "pbi_visual_bind", "description": "Bind a measure or column to a visual field well (Values, Axis, Legend, etc.). Use when the user asks to add data to a visual, connect a measure to a chart, or set what data a visual displays.", "inputSchema": {"type": "object", "properties": {"page": {"type": "string", "description": "Page name."}, "visual": {"type": "string", "description": "Visual ID."}, "table": {"type": "string", "description": "Table name."}, "column": {"type": "string", "description": "Column or measure name."}, "role": {"type": "string", "description": "Field well role (e.g. Values, Axis, Legend, Category, Details)."}, "reportPath": {"type": "string", "description": "Path to .pbip file or report folder."}}, "required": ["page", "visual", "table", "column"]}},
+    {"name": "pbi_visual_update", "description": "Update a visual property or setting. Use when the user asks to change visual formatting, title, colors, borders, or display options.", "inputSchema": {"type": "object", "properties": {"page": {"type": "string", "description": "Page name."}, "visual": {"type": "string", "description": "Visual ID."}, "property": {"type": "string", "description": "Property path to update."}, "value": {"type": "string", "description": "New value."}, "reportPath": {"type": "string", "description": "Path to .pbip file or report folder."}}, "required": ["page", "visual", "property", "value"]}},
+    {"name": "pbi_visual_delete", "description": "Delete a visual from a report page. Use when the user asks to remove a chart, card, or any visual element from a page.", "inputSchema": {"type": "object", "properties": {"page": {"type": "string", "description": "Page name."}, "visual": {"type": "string", "description": "Visual ID."}, "reportPath": {"type": "string", "description": "Path to .pbip file or report folder."}}, "required": ["page", "visual"]}},
+    # Filters
+    {"name": "pbi_filters_list", "description": "List all filters on a report page or visual. Use when the user asks to see what filters are applied or wants to audit report filters.", "inputSchema": {"type": "object", "properties": {"page": {"type": "string", "description": "Page name."}, "visual": {"type": "string", "description": "Optional visual ID to scope to a specific visual."}, "reportPath": {"type": "string", "description": "Path to .pbip file or report folder."}}, "required": ["page"]}},
+    {"name": "pbi_filters_add_categorical", "description": "Add a categorical filter to a report page. Use when the user asks to filter by specific values like region, product, or category name.", "inputSchema": {"type": "object", "properties": {"page": {"type": "string", "description": "Page name."}, "table": {"type": "string", "description": "Table name."}, "column": {"type": "string", "description": "Column name."}, "values": {"type": "string", "description": "Comma-separated values to include in filter."}, "reportPath": {"type": "string", "description": "Path to .pbip file or report folder."}}, "required": ["page", "table", "column", "values"]}},
+    {"name": "pbi_filters_add_topn", "description": "Add a Top N filter to a report page. Use when the user asks to show only the top N products, customers, or items ranked by a measure.", "inputSchema": {"type": "object", "properties": {"page": {"type": "string", "description": "Page name."}, "table": {"type": "string", "description": "Table name."}, "column": {"type": "string", "description": "Column to rank."}, "n": {"type": "number", "description": "Number of top items to show."}, "reportPath": {"type": "string", "description": "Path to .pbip file or report folder."}}, "required": ["page", "table", "column", "n"]}},
+    {"name": "pbi_filters_clear", "description": "Clear all filters from a report page. Use when the user asks to remove or reset all filters on a specific page.", "inputSchema": {"type": "object", "properties": {"page": {"type": "string", "description": "Page name."}, "reportPath": {"type": "string", "description": "Path to .pbip file or report folder."}}, "required": ["page"]}},
+    # Bookmarks
+    {"name": "pbi_bookmarks_list", "description": "List all bookmarks in a report. Use when the user asks what bookmarks or saved views exist in a report.", "inputSchema": {"type": "object", "properties": {"reportPath": {"type": "string", "description": "Path to .pbip file or report folder."}}}},
+    {"name": "pbi_bookmarks_add", "description": "Add a bookmark capturing the current report state. Use when the user asks to save a view, create a navigation bookmark, or record a specific filter state.", "inputSchema": {"type": "object", "properties": {"name": {"type": "string", "description": "Bookmark display name."}, "reportPath": {"type": "string", "description": "Path to .pbip file or report folder."}}, "required": ["name"]}},
+    {"name": "pbi_bookmarks_delete", "description": "Delete a bookmark from a report. Use when the user asks to remove or clean up a specific bookmark.", "inputSchema": {"type": "object", "properties": {"name": {"type": "string", "description": "Bookmark name to delete."}, "reportPath": {"type": "string", "description": "Path to .pbip file or report folder."}}, "required": ["name"]}},
+    # Extended Model
+    {"name": "pbi_partition_list", "description": "List all partitions for a table including M queries. Use when the user asks about data refresh, partitions, incremental refresh configuration, or M queries for a table.", "inputSchema": {"type": "object", "properties": {"table": {"type": "string", "description": "Table name."}}, "required": ["table"]}},
+    {"name": "pbi_hierarchy_list", "description": "List all hierarchies in the semantic model. Use when the user asks about drilldown paths, date hierarchies, or navigation structures in the model.", "inputSchema": {"type": "object", "properties": {}}},
+    {"name": "pbi_perspective_list", "description": "List all perspectives defined in the model. Use when the user asks how the model is exposed to different audiences or roles, or wants to audit perspectives.", "inputSchema": {"type": "object", "properties": {}}},
+    {"name": "pbi_dax_clear_cache", "description": "Clear the DAX query cache in Power BI Desktop. Use before benchmarking query performance or when results seem stale after model changes.", "inputSchema": {"type": "object", "properties": {}}},
+    {"name": "pbi_export_tmsl", "description": "Export the live model as TMSL (Tabular Model Scripting Language JSON). Use when the user needs the raw model JSON for Analysis Services scripting, deployment automation, or deep model inspection.", "inputSchema": {"type": "object", "properties": {"path": {"type": "string", "description": "Output file path for the TMSL JSON."}}}},
 ]
 
 
@@ -651,6 +707,129 @@ def handle_tool_call(name, args):
         return make_result(out, not ok)
     if name == "pbi_trace_stop":
         ok, out = run_pbi("trace", "stop")
+        return make_result(out, not ok)
+
+    # ---------------------------------------------------------------------------
+    # Report Layer (PBIR — no live model connection required)
+    # ---------------------------------------------------------------------------
+    if name == "pbi_report_info":
+        ok, out = run_pbi("report", "info", *_report_args(args))
+        return make_result(out, not ok)
+    if name == "pbi_report_validate":
+        ok, out = run_pbi("report", "validate", *_report_args(args))
+        return make_result(out, not ok)
+    if name == "pbi_report_create":
+        ca = ["report", "create", "--name", args["name"]] + _report_args(args)
+        ok, out = run_pbi(*ca)
+        return make_result(out, not ok)
+    if name == "pbi_report_reload":
+        ok, out = run_pbi("report", "reload", *_report_args(args))
+        return make_result(out, not ok)
+
+    # Pages
+    if name == "pbi_page_list":
+        ok, out = run_pbi("report", "info", *_report_args(args))
+        return make_result(out, not ok)
+    if name == "pbi_page_add":
+        ca = ["report", "add-page", "--name", args["name"]] + _report_args(args)
+        ok, out = run_pbi(*ca)
+        return make_result(out, not ok)
+    if name == "pbi_page_delete":
+        ca = ["report", "delete-page", "--page", args["page"]] + _report_args(args)
+        ok, out = run_pbi(*ca)
+        return make_result(out, not ok)
+
+    # Visuals
+    if name == "pbi_visual_list":
+        ca = ["visual", "list", "--page", args["page"]] + _report_args(args)
+        ok, out = run_pbi(*ca)
+        return make_result(out, not ok)
+    if name == "pbi_visual_add":
+        ca = ["visual", "add", "--page", args["page"], "--type", args["type"]]
+        if args.get("x") is not None: ca += ["--x", str(args["x"])]
+        if args.get("y") is not None: ca += ["--y", str(args["y"])]
+        if args.get("width") is not None: ca += ["--w", str(args["width"])]
+        if args.get("height") is not None: ca += ["--h", str(args["height"])]
+        ca += _report_args(args)
+        ok, out = run_pbi(*ca)
+        return make_result(out, not ok)
+    if name == "pbi_visual_get":
+        ca = ["visual", "get", "--page", args["page"], "--visual", args["visual"]] + _report_args(args)
+        ok, out = run_pbi(*ca)
+        return make_result(out, not ok)
+    if name == "pbi_visual_bind":
+        ca = ["visual", "bind", "--page", args["page"], "--visual", args["visual"],
+              "--table", args["table"], "--column", args["column"]]
+        if args.get("role"): ca += ["--role", args["role"]]
+        ca += _report_args(args)
+        ok, out = run_pbi(*ca)
+        return make_result(out, not ok)
+    if name == "pbi_visual_update":
+        ca = ["visual", "update", "--page", args["page"], "--visual", args["visual"],
+              "--property", args["property"], "--value", args["value"]] + _report_args(args)
+        ok, out = run_pbi(*ca)
+        return make_result(out, not ok)
+    if name == "pbi_visual_delete":
+        ca = ["visual", "delete", "--page", args["page"], "--visual", args["visual"]] + _report_args(args)
+        ok, out = run_pbi(*ca)
+        return make_result(out, not ok)
+
+    # Filters
+    if name == "pbi_filters_list":
+        ca = ["filters", "list", "--page", args["page"]]
+        if args.get("visual"): ca += ["--visual", args["visual"]]
+        ca += _report_args(args)
+        ok, out = run_pbi(*ca)
+        return make_result(out, not ok)
+    if name == "pbi_filters_add_categorical":
+        ca = ["filters", "add-categorical", "--page", args["page"],
+              "--table", args["table"], "--column", args["column"],
+              "--values", args["values"]] + _report_args(args)
+        ok, out = run_pbi(*ca)
+        return make_result(out, not ok)
+    if name == "pbi_filters_add_topn":
+        ca = ["filters", "add-topn", "--page", args["page"],
+              "--table", args["table"], "--column", args["column"],
+              "--n", str(int(args["n"]))] + _report_args(args)
+        ok, out = run_pbi(*ca)
+        return make_result(out, not ok)
+    if name == "pbi_filters_clear":
+        ca = ["filters", "clear", "--page", args["page"]] + _report_args(args)
+        ok, out = run_pbi(*ca)
+        return make_result(out, not ok)
+
+    # Bookmarks
+    if name == "pbi_bookmarks_list":
+        ok, out = run_pbi("bookmarks", "list", *_report_args(args))
+        return make_result(out, not ok)
+    if name == "pbi_bookmarks_add":
+        ca = ["bookmarks", "add", "--name", args["name"]] + _report_args(args)
+        ok, out = run_pbi(*ca)
+        return make_result(out, not ok)
+    if name == "pbi_bookmarks_delete":
+        ca = ["bookmarks", "delete", "--name", args["name"]] + _report_args(args)
+        ok, out = run_pbi(*ca)
+        return make_result(out, not ok)
+
+    # ---------------------------------------------------------------------------
+    # Extended Model Layer
+    # ---------------------------------------------------------------------------
+    if name == "pbi_partition_list":
+        ok, out = run_pbi("partition", "list", "--table", args["table"])
+        return make_result(out, not ok)
+    if name == "pbi_hierarchy_list":
+        ok, out = run_pbi("hierarchy", "list")
+        return make_result(out, not ok)
+    if name == "pbi_perspective_list":
+        ok, out = run_pbi("perspective", "list")
+        return make_result(out, not ok)
+    if name == "pbi_dax_clear_cache":
+        ok, out = run_pbi("dax", "clear-cache")
+        return make_result(out, not ok)
+    if name == "pbi_export_tmsl":
+        ca = ["database", "export-tmsl"]
+        if args.get("path"): ca += ["--path", args["path"]]
+        ok, out = run_pbi(*ca)
         return make_result(out, not ok)
 
     return make_result(f"Unknown tool: {name}", is_error=True)

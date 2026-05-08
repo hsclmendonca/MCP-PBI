@@ -10,7 +10,7 @@
             ],
             "env": {
                 "PYTHONUNBUFFERED": "1",
-                "PBI_MCP_READ_ONLY": "true"
+                "PBI_MCP_READ_ONLY": "false"
             }
         }
     }

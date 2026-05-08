@@ -18,9 +18,34 @@ $ErrorActionPreference = 'Stop'
 $scriptDir = Split-Path $PSScriptRoot -Parent
 $root = Split-Path $scriptDir -Parent
 
+function Resolve-PbiExecutable {
+    $pbiCmd = Get-Command pbi -ErrorAction SilentlyContinue
+    if ($pbiCmd) {
+        return $pbiCmd.Source
+    }
+
+    $pythonCmd = Get-Command python -ErrorAction SilentlyContinue
+    if ($pythonCmd) {
+        try {
+            $userScripts = & python -c "import site; print(site.getusersitepackages().replace('site-packages','Scripts'))" 2>$null
+            if ($LASTEXITCODE -eq 0 -and $userScripts) {
+                $candidate = Join-Path ($userScripts.Trim()) "pbi.exe"
+                if (Test-Path $candidate) {
+                    return $candidate
+                }
+            }
+        }
+        catch {
+            # Best-effort fallback only.
+        }
+    }
+
+    return $null
+}
+
 $mcpConfigPath = Join-Path $root ".vscode\mcp.json"
 $handshakeScript = Join-Path $root "scripts\test\test-mcp-server.ps1"
-$pbiExe = "C:\Users\ex_lmendonca\AppData\Local\Programs\Python\Python312\Scripts\pbi.exe"
+$pbiExe = Resolve-PbiExecutable
 
 Write-Host "`n=== MCP + Power BI End-to-End Verification ===" -ForegroundColor Cyan
 Write-Host "Identity Standard: MCP-ID=powerbi | Alias=mcp-pbi | Server=powerbi-mcp-server" -ForegroundColor White
@@ -56,10 +81,13 @@ if ($LASTEXITCODE -ne 0) {
 Write-Host "[OK] MCP handshake succeeded (powerbi-mcp-server is reachable)." -ForegroundColor Green
 
 # 3) Power BI live model via pbi-cli
-if (-not (Test-Path $pbiExe)) {
-    Write-Host "[FAIL] pbi-cli executable not found: $pbiExe" -ForegroundColor Red
+if (-not $pbiExe) {
+    Write-Host "[FAIL] pbi-cli executable not found." -ForegroundColor Red
+    Write-Host "       Install and verify with: .\scripts\setup\setup-pbi-cli.ps1" -ForegroundColor Yellow
+    Write-Host "       Then retry this E2E test." -ForegroundColor Yellow
     exit 2
 }
+Write-Host "[OK] pbi-cli executable: $pbiExe" -ForegroundColor Green
 
 $pbid = Get-Process PBIDesktop -ErrorAction SilentlyContinue | Select-Object -First 1
 if (-not $pbid) {
